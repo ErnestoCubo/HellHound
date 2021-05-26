@@ -47,10 +47,14 @@ def parseo_wordlist(wordlist, url):
         exit()
 
 def path_check(path,  url):
+
     try:
+
         response = requests.get('http://' + url + '/' + path).status_code
     except Exception:
+
         print('[!]Error inesperado')
         exit()
     if response == 200:
+        
         print('Directorio encontrado %s' %(url + '/' + path))

@@ -3,51 +3,89 @@ import time
 from colorama import init
 from termcolor import colored
 import scapy.all as scapy
+import re
 
-# Se reciben puerto e ip una vez recibidos empieza el escaner con una serie de flags definidas
-# el paquete que se monta sale de un puerto aleatorio de la máquina origen y llega al puerto especificado en
-# la destino se define un timeout para que no quede en bucle infinito, realizado esto se comprueba el resultado del escaner
-# de tal manera que si los puertos estan abiertos es porque en la capa TCP respondieron con el flag 0x12 SYN + ACK
+# El escaner funciona de dos manera de manera en la que se pase la flag en la que el se 
+# quiera ver los puertos filtrados por el firewall o un modo agresivo en el que se
+# realizar el scaner dejando algo de rastro pero solo se puede saber si esta cerrado o 
+# abierto el puerto,
+def scanTCP(ip, puertos, tipo):
+
+    dst_ip = ip
+    puerto_origen = scapy.RandShort()
+    puerto_destino = int(puertos)
+    paquete_TCP = scapy.TCP(sport=puerto_origen,
+                            dport=puerto_destino, flags="S")
+    paquete_IP = scapy.IP(dst=dst_ip)
+
+    if tipo == "a":
+
+        scan_resp = scapy.sr1(paquete_IP/paquete_TCP, verbose=0, timeout=10)
+        if(str(type(scan_resp)) == "<type 'NoneType'>"):
+
+            print(str(puerto_destino) + "\ttcp\t\t cerrado")
+        elif scan_resp.haslayer(scapy.TCP) and scan_resp.getlayer(scapy.TCP).flags == 0x12:
+
+            paquete_TCP = scapy.TCP(
+                sport=puerto_origen, dport=puerto_destino, flags="AR")
+            send_rst = scapy.sr(paquete_IP/paquete_TCP, verbose=0, timeout=10)
+            print(str(puerto_destino) + "\ttcp\t\t abierto")
+        elif (scan_resp.getlayer(scapy.TCP).flags == 0x14):
+
+            print(str(puerto_destino) + "\ttcp\t\t cerrado")
+
+    elif tipo == "fw":
+
+        scan_resp = scapy.sr1(paquete_IP/paquete_TCP, verbose=0, timeout=10)
+        if(str(type(scan_resp)) == "<type 'NoneType'>"):
+
+            print(str(puerto_destino) + "\ttcp\t\t filtrado por fw")
+        elif scan_resp.haslayer(scapy.TCP) and scan_resp.getlayer(scapy.TCP).flags == 0x12:
+
+            paquete_TCP = scapy.TCP(
+                sport=puerto_origen, dport=puerto_destino, flags="R")
+            send_rst = scapy.sr(paquete_IP/paquete_TCP, verbose=0, timeout=10)
+            print(str(puerto_destino) + "\ttcp\t\t abierto")
+        elif (scan_resp.getlayer(scapy.TCP).flags == 0x14):
+
+            print(str(puerto_destino) + "\ttcp\t\t cerrado")
+        elif(scan_resp.haslayer(scapy.ICMP)):
+
+            if(int(scan_resp.getlayer(scapy.ICMP).type) == 3 and int(scan_resp.getlayer(scapy.ICMP).code) in [1, 2, 3, 9, 10, 13]):
+
+                print(str(puerto_destino) + "\ttcp\t\t filtrado por fw")
 
 
-def scanTCP(ip, puertos):
+def scan(ip, puerto, bool_tcp, tipo_scan_tcp):
 
-    flags = ['S', 'SA', 'FPU', '']
-    abierto = False
-    for flag in flags:
-        resultado = None
-        resultado = scapy.sr1(scapy.IP(
-            dst=ip)/scapy.TCP(sport=scapy.RandShort(), dport=int(puertos), flags=flag), verbose=0, timeout=3)
+    print("puerto\ttipo\t\tstatus\n")
 
-        if str(type(resultado) == "<class 'NoneType'>"):
-            pass
-        elif (resultado.haslayer(scapy.TCP) and resultado.getlayer(scapy.TCP).flags == 0x12):
-            print("puerto/tipo\t\tstatus\n" + puertos + "/tcp\t abierto")
-        elif (resultado.haslayer(scapy.ICMP) and resultado.getlayer(scapy.ICMP).flags == 0x14):
-            pass
+    if puerto.find(",") != -1:
 
+        str(puerto)
+        puerto_inicio, puerto_final = re.split(',', puerto)
+        puertos_escanear = int(puerto_final) - int(puerto_inicio)
 
-def scanUDP(ip, puertos):
-    resultado = None
-    resultado = scapy.sr1(scapy.IP(
-        dst=ip)/scapy.UDP(sport=scapy.RandShort(), dport=int(puertos)), verbose=0, timeout=3)
-    time.sleep(1)
-    if resultado == None:
-        print("puerto/tipo\t\tstatus\n" + puertos + "/udp\t abierto")
-    elif str(type(resultado) == "<class 'NoneType'>"):
-        pass
-    elif resultado.haslayer(scapy.UDP):
-        print("puerto/tipo\t\tstatus\n" + puertos + "/udp\t abierto")
-    elif resultado.haslayer(scapy.ICMP):
-        if int(resultado.getlayer(scapy.ICMP).type) == 3 and int(resultado.getlayer(scapy.ICMP).code == 3):
-            pass
-        elif int(resultado.getlayer(scapy.ICMP).type) == 3 and int(resultado.getlayer(scapy.ICMP).code in [1, 2, 9, 10, 13]):
-            pass
+        i = 0
+        while i <= puertos_escanear:
 
+            if i == 0:
 
-def scan(ip, puerto, bool_tcp, bool_udp):
+                scanTCP(ip, puerto_inicio, tipo_scan_tcp)
+            else:
 
-    if bool_tcp:
-        scanTCP(ip, puerto)
-    if bool_udp:
-        scanUDP(ip, puerto)
+                scanTCP(ip, str(int(puerto_inicio) + i), tipo_scan_tcp)
+            i += 1
+
+    elif puerto.find(":") != -1:
+
+        str(puerto)
+        puertos = []
+        puertos = re.split(':', puerto)
+
+        for port in puertos:
+
+            scanTCP(ip, port, tipo_scan_tcp)
+    else:
+
+        scanTCP(ip, puerto, tipo_scan_tcp)
